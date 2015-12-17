@@ -5,11 +5,12 @@
 //-###########################################################################
 
 head
-  title meteor-job-collection-playground
+  title lawn-butler job queueing system
 
 body
   div.ui.container
     +top
+    +messagePanel
     +newJobInput
     +jobTable jobCollection
 
@@ -17,20 +18,42 @@ template(name="top")
   div.ui.segment
     h2.ui.header
       div.content
-         | job-collection Playground App
+         | Lawn Butler Job Queue 
          div.sub.header Connected clients: #{clientsConnected}
     unless currentUser
       div.ui.info.message
         p
           | You are currently in the public playground, create
           | an account and sign in to have a private space.
+        
+ 
     div.loginTemp
       +loginButtons align="right"
-    | Source code for this app is available
-    a(href="https://github.com/vsivsi/meteor-job-collection-playground") on GitHub
-    |, as is source for a
-    a(href="https://github.com/vsivsi/meteor-job-collection-playground-worker")
-      | plain node.js worker script
+        p 
+          | You are now in the private space and can enter your own jobs to be run.                   
+
+template(name="messagePanel")
+  div.ui.segment
+    h3.ui.header Input Phone number and message
+    p
+    div.field
+      label What is the number?
+        span.text-muted ( international suffix required ):
+      div.ui.large.fluid.action.input(class="#{inputMessageError}")
+        input(id="inputNumber" placeholder="e.g. 13854315678" type="text")
+        input(id="inputMessage" placeholder="e.g. Whatever you want to have here!" type="text")
+        if inputMessageReady
+          button#newJob.ui.green.right.labeled.icon.button
+            i.wait.icon
+            | Submit  
+        else if inputMessageError
+          button.ui.disabled.red.right.labeled.icon.button
+            i.wait.icon
+            | Submit
+        else
+          button.ui.disabled.right.labeled.icon.button
+            i.wait.icon
+            | Submit 
 
 template(name="workerPanel")
   div.ui.raised.segment#workerPanel

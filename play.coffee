@@ -15,8 +15,10 @@ myJobs = new JobCollection 'queue',
 
 later = myJobs.later
 
-if Meteor.isClient
+messageData = new ReactiveVar {}
 
+if Meteor.isClient
+   
    tick = 2500
 
    stats = new Mongo.Collection 'jobStats'
@@ -39,11 +41,12 @@ if Meteor.isClient
    parseSched = new ReactiveVar []
    reactiveDate = new ReactiveVar new Date()
    localWorker = new ReactiveVar null
+   
 
    Meteor.setInterval((() -> reactiveDate.set new Date()), tick)
 
    q = null
-   myType = 'testJob_null'
+   myType = 'sprinklerJob_null'
 
    timeFormatter = (time) ->
       now = reactiveDate.get()
@@ -55,12 +58,13 @@ if Meteor.isClient
    Tracker.autorun () ->
       userId = Meteor.userId()
       suffix = if userId then "_#{userId.substr(0,5)}" else ""
-      myType = "testJob#{suffix}"
+      myType = "sprinklerJob#{suffix}"
       Meteor.subscribe 'allJobs', userId
       q?.shutdown { level: 'hard' }
       q = myJobs.processJobs myType, { pollInterval: false, workTimeout: 60*1000 }, (job, cb) ->
          done = 0
          localWorker.set job.doc
+         
          int = Meteor.setInterval (() ->
             lw = localWorker.get()
             if lw
@@ -69,6 +73,9 @@ if Meteor.isClient
                   Meteor.clearInterval int
                   localWorker.set null
                   jobsProcessed.set jobsProcessed.get() + 1
+                  
+                  Meteor.call "sendTextMessage", lw.data.phoneNumber, lw.data.smsMessage
+                          
                   job.done()
                   cb()
                else
@@ -118,6 +125,18 @@ if Meteor.isClient
 
      clientsConnected: () ->
         return stats.findOne('stats')?.currentClients or '0'
+        
+   Template.messagePanel.events
+   
+       'click #newMessage': newMessageSubmit
+      
+       'input #inputNumber': (e, t) ->
+         e.preventDefault();
+         messageData.phoneNumber = e.target.value.trim()
+    
+       'input #inputMessage': (e, t) ->
+         e.preventDefault();
+         messageData.message = e.target.value.trim()
 
    Template.workerPanel.helpers
       jobsProcessed: () ->
@@ -219,6 +238,14 @@ if Meteor.isClient
 
       pausable: () ->
          this.status in Job.jobStatusPausable
+         
+   Template.messagePanel.helpers
+
+      inputMessageReady: () ->
+         true
+         
+      inputMessageError: () ->
+         ""
 
    Template.newJobInput.helpers
 
@@ -271,6 +298,10 @@ if Meteor.isClient
       else
          return null
 
+   newMessageSubmit = (e, t) ->
+      messageData.phoneNumber = t.find("#inputNumber").value
+      messageData.message = t.find("#inputMessage").value
+      
    newJobSubmit = (e, t) ->
       val = t.find("#inputLater").value
       cronFlag = validateCRON val
@@ -280,7 +311,9 @@ if Meteor.isClient
       else
          s = later.parse.text(val)
       if s.error is -1
-         job = new Job(myJobs, myType, { owner: Meteor.userId() })
+         console.log "phoneNumber: " + messageData.phoneNumber + " smsMessage: " + messageData.message
+         
+         job = new Job(myJobs, myType, { owner: Meteor.userId(), phoneNumber: messageData.phoneNumber, smsMessage: messageData.message})
             .retry({ retries: 2, wait: 30000, backoff: 'exponential'})
             .repeat({ schedule: s })
             .save({cancelRepeats: true})
@@ -292,7 +325,7 @@ if Meteor.isClient
       'click #newJob': newJobSubmit
 
       'keyup #inputLater': (e, t) ->
-        if e.keyCode is 13
+        if e.keyCode is 1
            newJobSubmit e, t
 
       'input #inputLater': (e, t) ->
@@ -360,6 +393,8 @@ if Meteor.isServer
    # myJobs.setLogStream process.stdout
    myJobs.promote 5000
 
+   Nexmo.initialize 'f6736f96', '4931f59c', 'http OR https', 'DEBUG (boolean)'
+  
    Meteor.startup () ->
 
       # Don't allow users to modify the user docs
@@ -402,7 +437,7 @@ if Meteor.isServer
          # See: https://stackoverflow.com/questions/24445404/how-to-prevent-a-client-reactive-race-between-meteor-userid-and-a-subscription/24460877#24460877
          if this.userId is clientUserId
             suffix = if this.userId then "_#{this.userId.substr(0,5)}" else ""
-            return myJobs.find({ type: "testJob#{suffix}", 'data.owner': this.userId })
+            return myJobs.find({ type: "sprinklerJob#{suffix}", 'data.owner': this.userId })
          else
             return []
 
@@ -430,7 +465,7 @@ if Meteor.isServer
 
          getWork: (userId, method, params) ->
             suffix = if userId then "_#{userId.substr(0,5)}" else ""
-            params[0][0] is "testJob#{suffix}" and params[0].length is 1
+            params[0][0] is "sprinklerJob#{suffix}" and params[0].length is 1
 
          worker: (userId, method, params) ->
             if method is 'getWork'
@@ -462,3 +497,12 @@ if Meteor.isServer
          .observe
             added: () ->
                q.trigger()
+
+   Meteor.methods 
+      sendTextMessage: (phoneNumber, message) ->
+         console.log "phoneNumber: " + phoneNumber
+         console.log "message: " + message
+         
+         Nexmo.sendTextMessage '12054193950', phoneNumber, message, null, (err, response) ->
+            console.log "err: " + err
+ 
